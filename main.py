@@ -9,7 +9,7 @@ server_ip = os.getenv("SERVER_IP")
 
 # To consume latest messages and auto-commit offsets
 consumer = KafkaConsumer('my-topic',
-                         bootstrap_servers=[':9092'],
+                         bootstrap_servers=[str(server_ip+':9092')],
                          request_timeout_ms=10000,
                          session_timeout_ms=5000,
                          value_deserializer=msgpack.unpackb
