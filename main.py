@@ -12,9 +12,11 @@ consumer = KafkaConsumer('my-topic',
                          bootstrap_servers=[str(server_ip+':9092')],
                          request_timeout_ms=10000,
                          session_timeout_ms=5000,
-                         value_deserializer=msgpack.unpackb
+                         value_deserializer=msgpack.unpackb,
+                         key_deserializer=msgpack.unpackb
                          )
 print(consumer.bootstrap_connected())
+
 for message in consumer:
     print ("%s:%d:%d: key=%s value=%s" % (message.topic, message.partition,
                                           message.offset, message.key,
