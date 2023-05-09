@@ -5,6 +5,8 @@ import os
 from pytermgui import tim
 import tkinter as tk
 from datetime import datetime
+from eventcontainer import EventContainer
+from guihelpers import insert_message_info
 
 load_dotenv()
 
@@ -30,73 +32,84 @@ if consumer.bootstrap_connected():
     tim.print("[blue]INIT[/]    Estabilished connection with Kafka server")
 
 
-kafka_messages_list = []
-
-
-def create_label(message) -> str:
-    match message["action_id"]:
-        case 1:
-            return message["message"]["author"]["name"]+" sent a message in "+message["message"]["channel"]["name"]
-        case 2:
-            return message["after"]["author"]["name"]+" edited their message in "+message["after"]["channel"]["name"]
-        case 3:
-            return message["message"]["author"]["name"]+"'s message was deleted in "+message["message"]["channel"]["name"]
-        case 4:
-            return "Messages got bulk deleted"
-        case 5:
-            return message["user"]+" added a "+message["reaction"]["name"]+" reaction to "+message["message"]["author"]["name"]+"'s message"
-        case 6:
-            return message["user"]+" removed a "+message["reaction"]["name"]+" reaction from "+message["message"]["author"]["name"]+"'s message"
-        case 7:
-            return "All reactions were cleared from "+message["message"]["author"]["name"]+"'s message"
-        case 8:
-            return "All "+message["reaction"]["name"]+" reactions were removed from "+message["message"]["author"]["name"]+"'s message"
-    return str(message["action_id"])+" yielded an error"
+kafka_messages_list: list[EventContainer] = []
 
 
 def update_pooler():
     pool_data = consumer.poll()
     for _, records in pool_data.items():
         for record in records:
+            event = EventContainer(record.value)
             message_list.insert(tk.END, datetime.utcfromtimestamp(int(
-                record.timestamp/1000)).strftime('%Y-%m-%d %H:%M:%S')+" "+create_label(record.value))
-            kafka_messages_list.append(record.value)
+                record.timestamp/1000)).strftime('%Y-%m-%d %H:%M:%S')+" "+event.create_label())
+            kafka_messages_list.append(event)
     root.after(1000, update_pooler)
-
-
-def generate_details(evt: tk.Event):
-    try:
-        message_data = kafka_messages_list[evt.widget.curselection()[0]]
-    except IndexError:
-        # this will frequently fail, if clicked not onto a proper element in the list
-        return
-    detail_list.delete(0,tk.END)
-    detail_list.insert(tk.END,"General description of the event")
-    detail_list.insert(tk.END,"Action")
-    detail_list.insert(tk.END,"Time")
-    detail_list.insert(tk.END,"In case of messages, here we put allllll of the message info that we have")
-    detail_list.insert(tk.END,"We also provide a callback that'd let us copy any on the elements :)")
-    detail_list.insert(tk.END,"If this is an editable, ofc we add another field for edited message")
-    detail_list.insert(tk.END,"Bulk is... we'll see later, but not forget")
-    detail_list.insert(tk.END,"Emojis getting added and removed should be the same, really")
-    detail_list.insert(tk.END,"No, we won't download the emojis, just in case, but we can do that")
-    detail_list.insert(tk.END,"And, ofc, don't forget the emojis funs with multiples")
-    detail_list.insert(tk.END,"Have some message data")
-    detail_list.insert(tk.END,message_data)
 
 
 # initialize creation
 root = tk.Tk(className="Consumer")
 
-# create container on the left side of the window, put message list relevant data there
+# Create scrollbars
 scrollbar_msg = tk.Scrollbar(root)
 scrollbar_msg.pack(side=tk.LEFT, fill=tk.Y)
+scrollbar_det = tk.Scrollbar(root)
+scrollbar_det.pack(side=tk.RIGHT, fill=tk.Y)
+# this one is for wide data in detiled view
+scrollbar_det_hor = tk.Scrollbar(root, orient=tk.HORIZONTAL)
+# we pack it later, as packing order matters
+# create lists for displaying data
 message_list = tk.Listbox(root, yscrollcommand=scrollbar_msg.set)
 message_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-scrollbar_msg.config(command=message_list.yview)
-
-detail_list = tk.Listbox(root)
+detail_list = tk.Listbox(
+    root, yscrollcommand=scrollbar_det.set, xscrollcommand=scrollbar_det_hor.set)
+scrollbar_det_hor.pack(side=tk.BOTTOM, fill=tk.X)
 detail_list.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+# connect scrollbars with respective lists
+scrollbar_msg.config(command=message_list.yview)
+scrollbar_det.config(command=message_list.yview)
+scrollbar_det_hor.config(command=message_list.xview)
+
+
+# "UI" creation, here for the lambda function in event binding
+def generate_details(evt: tk.Event):
+    try:
+        message_data: EventContainer = kafka_messages_list[evt.widget.curselection()[
+            0]]
+    except IndexError:
+        # this will frequently fail, if clicked not onto a proper element in the list
+        return
+    # clean display
+    detail_list.delete(0, tk.END)
+    # insert standardized label
+    detail_list.insert(tk.END, message_data.create_label())
+    # process reactions, if applicable
+    if message_data.reactions:
+        detail_list.insert(tk.END, "   ◎Relevant reactions")
+        for reaction in message_data.reactions:
+            detail_list.insert(tk.END, f"   ┠    Reaction: {reaction.name}")
+            # unicode reactions have no links
+            if reaction.url:
+                detail_list.insert(tk.END, f"   ┃   ├   Link: {reaction.url}")
+            detail_list.insert(tk.END, f"   ┃   └   Count: {reaction.count}")
+        # for events 5 and 6
+        if message_data.reaction_user:
+            detail_list.insert(
+                tk.END, f"   ◎By user: {message_data.reaction_user}")
+    # go through messages
+    if message_data.messages:
+        detail_list.insert(tk.END, "   ◎Relevant messages")
+        if message_data.action_id == 2:
+            detail_list.insert(tk.END, "   ┎  Edited")
+            insert_message_info(message_data.messages[0], detail_list)
+            detail_list.insert(tk.END, "   ┎  Original")
+            insert_message_info(message_data.messages[1], detail_list)
+        elif message_data.action_id == 4:
+            for message in message_data.messages:
+                insert_message_info(message, detail_list)
+        else:
+            insert_message_info(message_data.messages[0], detail_list)
+
 
 message_list.bind('<<ListboxSelect>>', generate_details)
 
