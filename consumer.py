@@ -19,13 +19,13 @@ consumer = kf.KafkaConsumer(f'discord-{kafka_username}-all',
                             bootstrap_servers=[str(server_ip)],
                             request_timeout_ms=10000,
                             session_timeout_ms=5000,
-                            value_deserializer=msgpack.unpackb,
-                            key_deserializer=msgpack.unpackb,
+                            value_deserializer=msgpack.loads,
+                            key_deserializer=msgpack.loads,
                             sasl_mechanism="PLAIN",
                             security_protocol="SASL_PLAINTEXT",
                             sasl_plain_username=kafka_username,
-                            # prone to failures with current setup, might require few tries to work
-                            sasl_plain_password=kafka_password, auto_offset_reset="earliest"
+                            sasl_plain_password=kafka_password
+                            #, auto_offset_reset="earliest"
                             )
 
 if consumer.bootstrap_connected():
@@ -33,7 +33,6 @@ if consumer.bootstrap_connected():
 
 
 kafka_messages_list: list[EventContainer] = []
-
 
 def update_pooler():
     pool_data = consumer.poll()
